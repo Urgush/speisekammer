@@ -2019,6 +2019,46 @@ document.getElementById('edit-modal').addEventListener('click', function(e) {
   if (e.target === this) closeEdit();
 });
 
+// ─── Recipe Prompt Generator ────────────────────────────────────────────────
+function generateRecipePrompt() {
+  if (!inventory.length) { showToast('Speisekammer ist leer', true); return; }
+
+  const items = inventory.map(i => `${i.name} (${i.qty} ${i.unit})`).join(', ');
+
+  const prompt = `Ich habe folgende Lebensmittel in meiner Speisekammer: ${items}.
+
+Was kann ich daraus kochen? Bitte 2-3 Rezeptideen vorschlagen, die möglichst viele dieser Zutaten verwenden. Falls etwas Wichtiges fehlt (z.B. Gewürze, Öl, Grundzutaten), gerne kurz erwähnen.`;
+
+  document.getElementById('recipe-text').value = prompt;
+  document.getElementById('recipe-modal').classList.add('open');
+}
+
+function closeRecipeModal() {
+  document.getElementById('recipe-modal').classList.remove('open');
+}
+
+function copyRecipePrompt() {
+  const text = document.getElementById('recipe-text');
+  text.select();
+  navigator.clipboard.writeText(text.value)
+    .then(() => showToast('✓ In Zwischenablage kopiert'))
+    .catch(() => {
+      document.execCommand('copy');
+      showToast('✓ Kopiert');
+    });
+}
+
+document.getElementById('recipe-modal').addEventListener('click', function(e) {
+  if (e.target === this) closeRecipeModal();
+});
+
+// ─── Info Modal ──────────────────────────────────────────────────────────────
+function openInfoModal() { document.getElementById('info-modal').classList.add('open'); }
+function closeInfoModal() { document.getElementById('info-modal').classList.remove('open'); }
+document.getElementById('info-modal').addEventListener('click', function(e) {
+  if (e.target === this) closeInfoModal();
+});
+
 checkSession();
 </script>
 </div>
