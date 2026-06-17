@@ -1,0 +1,2026 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>Speisekammer</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="https://unpkg.com/@zxing/library@0.19.1/umd/index.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.2/Sortable.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+  :root {
+    --bg: #0F1923;
+    --surface: #162130;
+    --card: #1E2D3D;
+    --border: #2A3F54;
+    --teal: #00C9A7;
+    --teal-dim: #007A65;
+    --amber: #FFB347;
+    --red: #FF5A5F;
+    --text: #E8EDF2;
+    --muted: #7A8FA0;
+    --font: 'Segoe UI', system-ui, sans-serif;
+    --radius: 14px;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font);
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  header {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 14px 20px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+  }
+
+  .logo {
+    width: 36px; height: 36px;
+    background: linear-gradient(135deg, var(--teal), var(--teal-dim));
+    border-radius: 10px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 18px;
+    flex-shrink: 0;
+  }
+
+  header h1 { font-size: 15px; font-weight: 700; color: var(--text); line-height: 1.2; }
+  header p { font-size: 11px; color: var(--muted); }
+
+  nav {
+    display: flex;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    overflow-x: hidden;
+  }
+
+  nav button {
+    flex: 1;
+    background: none; border: none; color: var(--muted);
+    padding: 10px 4px 8px;
+    font-size: 11px; font-weight: 600;
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    transition: all .2s;
+    white-space: nowrap;
+    display: flex; flex-direction: column;
+    align-items: center; gap: 3px;
+    line-height: 1.2;
+  }
+  nav button .nav-icon { font-size: 18px; }
+  nav button .nav-label { font-size: 9px; letter-spacing: .02em; }
+  nav button.active { color: var(--teal); border-bottom-color: var(--teal); }
+
+  .page { display: none; padding: 16px; }
+  .page.active { display: block; }
+
+  /* Cards */
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 16px;
+    margin-bottom: 14px;
+  }
+
+  .card-title {
+    font-size: 12px; font-weight: 700;
+    color: var(--muted);
+    text-transform: uppercase; letter-spacing: .08em;
+    margin-bottom: 12px;
+  }
+
+  /* Scanner */
+  #scanner-container {
+    background: #000;
+    border-radius: var(--radius);
+    overflow: hidden;
+    aspect-ratio: 4/3;
+    position: relative;
+    margin-bottom: 14px;
+  }
+  #scanner-container video { width: 100%; height: 100%; object-fit: cover; }
+  #scanner-container canvas { position: absolute; top: 0; left: 0; }
+
+  .scan-overlay {
+    position: absolute; inset: 0;
+    display: flex; align-items: center; justify-content: center;
+    pointer-events: none;
+  }
+  .scan-frame {
+    width: 70%; height: 40%;
+    border: 2px solid var(--teal);
+    border-radius: 8px;
+    box-shadow: 0 0 0 2000px rgba(0,0,0,.45);
+    position: relative;
+  }
+  .scan-line {
+    position: absolute;
+    top: 50%; left: 0; right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, transparent, var(--teal), transparent);
+    animation: scan 2s ease-in-out infinite;
+  }
+  @keyframes scan {
+    0%, 100% { top: 10%; opacity: .6; }
+    50% { top: 90%; opacity: 1; }
+  }
+
+  .scanner-placeholder {
+    background: var(--card);
+    border: 2px dashed var(--border);
+    border-radius: var(--radius);
+    aspect-ratio: 4/3;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    gap: 10px;
+    color: var(--muted);
+    font-size: 13px;
+    cursor: pointer;
+    margin-bottom: 14px;
+    transition: border-color .2s;
+  }
+  .scanner-placeholder:hover { border-color: var(--teal); }
+  .scanner-placeholder .icon { font-size: 40px; }
+
+  /* Buttons */
+  .btn {
+    width: 100%;
+    padding: 14px;
+    border: none; border-radius: 10px;
+    font-size: 14px; font-weight: 700;
+    cursor: pointer;
+    transition: all .15s;
+    letter-spacing: .02em;
+  }
+  .btn:active { transform: scale(.97); }
+  .btn-primary { background: var(--teal); color: #0F1923; }
+  .btn-primary:disabled { opacity: .4; cursor: not-allowed; transform: none; }
+  .btn-danger { background: var(--red); color: #fff; }
+  .btn-ghost { background: var(--border); color: var(--text); }
+  .btn-sm { padding: 8px 14px; font-size: 12px; width: auto; }
+
+  /* Form */
+  .field { margin-bottom: 12px; }
+  .field label { display: block; font-size: 11px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .07em; margin-bottom: 6px; }
+  .field input, .field select, .field textarea {
+    width: 100%;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 12px;
+    color: var(--text);
+    font-size: 14px;
+    font-family: var(--font);
+    transition: border-color .2s;
+  }
+  .field input:focus, .field select:focus, .field textarea:focus {
+    outline: none; border-color: var(--teal);
+  }
+  .field input::placeholder { color: var(--muted); }
+  .field select option { background: var(--card); }
+
+  /* Product result */
+  #product-result { display: none; }
+  .product-found {
+    display: flex; gap: 12px; align-items: flex-start;
+    padding: 12px;
+    background: rgba(0,201,167,.08);
+    border: 1px solid rgba(0,201,167,.25);
+    border-radius: 10px;
+    margin-bottom: 12px;
+  }
+  .product-img {
+    width: 60px; height: 60px; border-radius: 8px;
+    object-fit: contain; background: #fff; flex-shrink: 0;
+  }
+  .product-info h3 { font-size: 14px; font-weight: 700; margin-bottom: 4px; }
+  .product-info p { font-size: 12px; color: var(--muted); }
+
+  /* Badge */
+  .badge {
+    display: inline-block;
+    padding: 3px 8px; border-radius: 20px;
+    font-size: 11px; font-weight: 700;
+  }
+  .badge-ok { background: rgba(0,201,167,.2); color: var(--teal); }
+  .badge-warn { background: rgba(255,179,71,.2); color: var(--amber); }
+  .badge-danger { background: rgba(255,90,95,.2); color: var(--red); }
+  .badge-info { background: rgba(122,143,160,.2); color: var(--muted); }
+
+  /* Inventory list */
+  .item-row {
+    display: flex; align-items: center; gap: 12px;
+    padding: 12px 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .item-row:last-child { border-bottom: none; }
+
+  .item-icon {
+    width: 38px; height: 38px;
+    background: var(--bg);
+    border-radius: 10px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 18px; flex-shrink: 0;
+  }
+
+  .item-main { flex: 1; min-width: 0; }
+  .item-name { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .item-sub { font-size: 11px; color: var(--muted); margin-top: 2px; }
+
+  .item-right { text-align: right; flex-shrink: 0; }
+  .item-qty { font-size: 15px; font-weight: 800; color: var(--teal); }
+  .item-unit { font-size: 10px; color: var(--muted); }
+
+  /* Stats */
+  .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .stat-card {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px;
+    text-align: center;
+  }
+  .stat-num { font-size: 28px; font-weight: 900; color: var(--teal); line-height: 1; }
+  .stat-label { font-size: 11px; color: var(--muted); margin-top: 4px; }
+
+  /* Manual barcode input */
+  .barcode-input-row {
+    display: flex; gap: 8px; margin-bottom: 14px;
+  }
+  .barcode-input-row input {
+    flex: 1;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 12px;
+    color: var(--text);
+    font-size: 14px;
+    font-family: var(--font);
+  }
+  .barcode-input-row input:focus { outline: none; border-color: var(--teal); }
+
+  /* Toast */
+  #toast {
+    position: fixed; bottom: 24px; left: 50%;
+    transform: translateX(-50%) translateY(100px);
+    background: var(--teal);
+    color: #0F1923;
+    padding: 12px 20px;
+    border-radius: 10px;
+    font-size: 13px; font-weight: 700;
+    z-index: 999;
+    transition: transform .3s;
+    pointer-events: none;
+    white-space: nowrap;
+    max-width: 90vw;
+    text-align: center;
+  }
+  #toast.show { transform: translateX(-50%) translateY(0); }
+  #toast.error { background: var(--red); color: #fff; }
+
+  /* Import/export */
+  .file-zone {
+    border: 2px dashed var(--border);
+    border-radius: 10px;
+    padding: 24px;
+    text-align: center;
+    color: var(--muted);
+    font-size: 13px;
+    cursor: pointer;
+    transition: border-color .2s;
+    margin-bottom: 12px;
+  }
+  .file-zone:hover { border-color: var(--teal); }
+  .file-zone .icon { font-size: 30px; margin-bottom: 8px; }
+
+  .divider { display: flex; align-items: center; gap: 10px; margin: 12px 0; color: var(--muted); font-size: 11px; }
+  .divider::before, .divider::after { content: ''; flex: 1; height: 1px; background: var(--border); }
+
+  /* Loading */
+  .loader { display: none; text-align: center; padding: 12px; color: var(--muted); font-size: 13px; }
+  .loader.active { display: block; }
+  .dots::after { content: ''; animation: dots 1.4s infinite; }
+  @keyframes dots { 0%{content:'.'} 33%{content:'..'} 66%{content:'...'} }
+
+  .row-flex { display: flex; gap: 8px; }
+  .row-flex .field { flex: 1; }
+
+  /* Empty state */
+  .empty { text-align: center; padding: 40px 20px; color: var(--muted); }
+  .empty .icon { font-size: 42px; margin-bottom: 12px; display: block; }
+
+  .section-label {
+    font-size: 11px; font-weight: 800;
+    text-transform: uppercase; letter-spacing: .1em;
+    color: var(--muted);
+    margin-bottom: 8px;
+  }
+
+  /* Edit modal */
+  #edit-modal {
+    display: none;
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,.7);
+    z-index: 200;
+    align-items: flex-end;
+    justify-content: center;
+  }
+  #edit-modal.open { display: flex; }
+  #edit-modal-inner {
+    background: var(--surface);
+    border-radius: 18px 18px 0 0;
+    padding: 20px 16px 32px;
+    width: 100%; max-width: 520px;
+    max-height: 90vh;
+    overflow-y: auto;
+    border-top: 1px solid var(--border);
+  }
+  #edit-modal-inner h3 {
+    font-size: 15px; font-weight: 800;
+    margin-bottom: 16px;
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .modal-close {
+    background: var(--border); border: none;
+    color: var(--text); border-radius: 20px;
+    padding: 4px 12px; font-size: 13px; cursor: pointer;
+  }
+
+  #dev-mode-slider::before {
+    content: ''; position: absolute;
+    height: 18px; width: 18px;
+    left: 3px; bottom: 3px;
+    background: var(--text);
+    border-radius: 50%;
+    transition: .2s;
+  }
+  #dev-mode-toggle:checked + #dev-mode-slider { background: var(--teal); }
+  #dev-mode-toggle:checked + #dev-mode-slider::before { transform: translateX(20px); background: #0F1923; }
+
+  #recipe-modal {
+    display: none;
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,.7);
+    z-index: 200;
+    align-items: flex-end;
+    justify-content: center;
+  }
+  #recipe-modal.open { display: flex; }
+  #recipe-modal-inner {
+    background: var(--surface);
+    border-radius: 18px 18px 0 0;
+    padding: 20px 16px 32px;
+    width: 100%; max-width: 520px;
+    max-height: 90vh;
+    overflow-y: auto;
+    border-top: 1px solid var(--border);
+  }
+  #recipe-modal-inner h3 {
+    font-size: 15px; font-weight: 800;
+    margin-bottom: 6px;
+    display: flex; justify-content: space-between; align-items: center;
+  }
+
+  #info-modal {
+    display: none;
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,.7);
+    z-index: 200;
+    align-items: flex-end;
+    justify-content: center;
+  }
+  #info-modal.open { display: flex; }
+  #info-modal-inner {
+    background: var(--surface);
+    border-radius: 18px 18px 0 0;
+    padding: 20px 16px 32px;
+    width: 100%; max-width: 520px;
+    max-height: 85vh;
+    overflow-y: auto;
+    border-top: 1px solid var(--border);
+  }
+  #info-modal-inner h3 {
+    font-size: 15px; font-weight: 800;
+    margin-bottom: 16px;
+    display: flex; justify-content: space-between; align-items: center;
+  }
+
+  /* Login screen */
+  #login-screen {
+    display: flex;
+    min-height: 100vh;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    background: var(--bg);
+  }
+  #login-screen.hidden { display: none; }
+  #login-box {
+    width: 100%; max-width: 360px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 18px;
+    padding: 32px 24px;
+  }
+  #login-box .logo {
+    width: 56px; height: 56px;
+    margin: 0 auto 16px;
+    font-size: 28px;
+  }
+  #login-box h2 {
+    text-align: center;
+    font-size: 20px; font-weight: 800;
+    margin-bottom: 4px;
+  }
+  #login-box p.subtitle {
+    text-align: center;
+    font-size: 13px; color: var(--muted);
+    margin-bottom: 24px;
+  }
+  #login-error {
+    display: none;
+    background: rgba(255,90,95,.1);
+    border: 1px solid rgba(255,90,95,.3);
+    color: var(--red);
+    border-radius: 8px;
+    padding: 10px 12px;
+    font-size: 12px;
+    margin-bottom: 14px;
+  }
+  #login-error.show { display: block; }
+  .login-toggle-text {
+    text-align: center;
+    font-size: 12px; color: var(--muted);
+    margin-top: 16px;
+  }
+  .login-toggle-text a { color: var(--teal); cursor: pointer; font-weight: 700; }
+  #app-root { display: none; }
+  #app-root.visible { display: block; }
+
+  .conn-warning {
+    display: none;
+    background: rgba(255,179,71,.12);
+    border-bottom: 1px solid rgba(255,179,71,.3);
+    color: var(--amber);
+    padding: 8px 16px;
+    font-size: 12px;
+    text-align: center;
+  }
+  .conn-warning.show { display: block; }
+
+
+</style>
+</head>
+<body>
+
+<!-- Login Screen -->
+<div id="login-screen">
+  <div id="login-box">
+    <div class="logo">🥫</div>
+    <h2>Speisekammer</h2>
+    <p class="subtitle">Melde dich an, um deine Vorräte zu verwalten</p>
+
+    <div id="login-error"></div>
+
+    <div class="field"><label>E-Mail</label><input type="email" id="login-email" placeholder="du@beispiel.de"></div>
+    <div class="field"><label>Passwort</label><input type="password" id="login-password" placeholder="••••••••" onkeydown="if(event.key==='Enter') handleLogin()"></div>
+
+    <button class="btn btn-primary" id="login-submit-btn" onclick="handleLogin()">Anmelden</button>
+
+    <p class="login-toggle-text" id="login-toggle-text">
+      Noch kein Konto? <a onclick="toggleLoginMode()">Registrieren</a>
+    </p>
+  </div>
+</div>
+
+<div class="conn-warning" id="conn-warning">⚠️ Keine Verbindung zur Datenbank – Änderungen werden nicht gespeichert</div>
+
+<div id="app-root">
+<header>
+  <div class="logo">🥫</div>
+  <div style="flex:1">
+    <h1>Speisekammer</h1>
+    <p>Deine Vorräte im Blick</p>
+  </div>
+  <button onclick="openInfoModal()" style="background:none;border:1px solid var(--border);color:var(--muted);border-radius:50%;width:30px;height:30px;font-size:14px;cursor:pointer;flex-shrink:0">ℹ️</button>
+</header>
+
+<nav>
+  <button class="active" onclick="showPage('scan', this)"><span class="nav-icon">📷</span><span class="nav-label">Scan</span></button>
+  <button onclick="showPage('lager', this)"><span class="nav-icon">🥫</span><span class="nav-label">Speisekammer</span></button>
+  <button onclick="showPage('export', this)"><span class="nav-icon">💾</span><span class="nav-label">Export</span></button>
+  <button onclick="showPage('stats', this)"><span class="nav-icon">📊</span><span class="nav-label">Statistik</span></button>
+  <button onclick="showPage('settings', this)"><span class="nav-icon">⚙️</span><span class="nav-label">Einstellungen</span></button>
+</nav>
+
+<!-- SCAN PAGE -->
+<div id="page-scan" class="page active">
+
+  <div id="scanner-placeholder" class="scanner-placeholder" onclick="startScanner()">
+    <span class="icon">📷</span>
+    <span>Kamera starten &amp; Barcode scannen</span>
+    <small>oder Barcode-Nummer manuell eingeben</small>
+  </div>
+
+  <div id="scanner-container" style="display:none;">
+    <div class="scan-overlay"><div class="scan-frame"><div class="scan-line"></div></div></div>
+  </div>
+
+  <div class="barcode-input-row">
+    <input type="text" id="manual-barcode" placeholder="Barcode manuell eingeben (z.B. 4005500012122)" inputmode="numeric" onkeydown="if(event.key==='Enter') lookupManual()">
+    <button class="btn btn-primary btn-sm" onclick="lookupManual()">Suchen</button>
+  </div>
+  <button class="btn btn-ghost" style="margin-bottom:14px" onclick="manualEntry()">✏️ Ohne Barcode erfassen</button>
+
+  <div id="scan-loader" class="loader"><span class="dots">Produktdaten werden geladen</span></div>
+
+  <div id="product-result">
+    <div class="product-found" id="product-display"></div>
+
+    <div class="card">
+      <div class="card-title">Produkt einbuchen</div>
+
+      <div class="row-flex">
+        <div class="field" style="flex:2">
+          <label>Produktname</label>
+          <input type="text" id="f-name" placeholder="Name eingeben">
+        </div>
+        <div class="field" style="flex:1">
+          <label>Menge</label>
+          <input type="number" id="f-qty" value="1" min="0.1" step="0.1">
+        </div>
+      </div>
+
+      <div class="row-flex">
+        <div class="field">
+          <label>Einheit</label>
+          <select id="f-unit"></select>
+        </div>
+        <div class="field">
+          <label>Kategorie</label>
+          <select id="f-category"></select>
+        </div>
+      </div>
+
+      <div class="row-flex">
+        <div class="field">
+          <label>Behälter / Ort</label>
+          <select id="f-location"></select>
+        </div>
+        <div class="field">
+          <label>MHD</label>
+          <input type="date" id="f-mhd">
+        </div>
+      </div>
+
+      <div class="field">
+        <label>Notiz (optional)</label>
+        <input type="text" id="f-note" placeholder="z.B. geöffnet, Rest...">
+      </div>
+
+      <button class="btn btn-primary" onclick="addItem()">+ Einbuchen</button>
+      <div style="height:8px"></div>
+      <button class="btn btn-danger" onclick="removeItem()">– Ausbuchen / Verbraucht</button>
+    </div>
+  </div>
+
+</div>
+
+<!-- LAGER PAGE -->
+<div id="page-lager" class="page">
+
+  <div class="card" style="padding:10px 14px">
+    <input type="text" id="search" placeholder="🔍 Suchen..." oninput="renderList()"
+      style="width:100%;background:none;border:none;color:var(--text);font-size:14px;outline:none;">
+  </div>
+
+  <div style="display:flex;gap:8px;margin-bottom:10px;overflow-x:auto;scrollbar-width:none;">
+    <button class="badge badge-warn" style="cursor:pointer;white-space:nowrap;flex-shrink:0" onclick="setFilter('mhd','warn')">⚠️ Bald ablaufend</button>
+    <button class="badge badge-danger" style="cursor:pointer;white-space:nowrap;flex-shrink:0" onclick="setFilter('mhd','expired')">⛔ Abgelaufen</button>
+    <button id="reset-filter-btn" onclick="resetFilters()" style="display:none;cursor:pointer;white-space:nowrap;flex-shrink:0;background:var(--border);border:none;color:var(--text);border-radius:20px;padding:3px 10px;font-size:11px;font-weight:700;">✕ Filter zurücksetzen</button>
+  </div>
+  <div style="display:flex;gap:8px;margin-bottom:12px;">
+    <select id="filter-cat" onchange="renderList()" style="flex:1;background:var(--card);border:1px solid var(--border);border-radius:8px;padding:8px 10px;color:var(--text);font-size:12px;font-family:var(--font)">
+      <option value="">Alle Kategorien</option>
+    </select>
+    <select id="filter-loc" onchange="renderList()" style="flex:1;background:var(--card);border:1px solid var(--border);border-radius:8px;padding:8px 10px;color:var(--text);font-size:12px;font-family:var(--font)">
+      <option value="">Alle Behälter</option>
+    </select>
+  </div>
+
+  <div id="lager-list"></div>
+
+  <button class="btn btn-ghost" style="margin-top:14px" onclick="generateRecipePrompt()">🎲 Was kann ich kochen?</button>
+</div>
+
+<!-- EXPORT PAGE -->
+<div id="page-export" class="page">
+
+  <div class="card">
+    <div class="card-title">Excel-Datei exportieren</div>
+    <p style="font-size:13px;color:var(--muted);margin-bottom:14px;">
+      Exportiert alle <strong style="color:var(--text)" id="export-count">0</strong> Einträge als .xlsx-Datei,
+      kompatibel mit LibreOffice Calc &amp; Excel.
+    </p>
+    <button class="btn btn-primary" onclick="exportXLSX(false)">📥 Alle exportieren</button>
+    <div style="height:8px"></div>
+    <button class="btn btn-ghost" id="export-filtered-btn" onclick="exportXLSX(true)" style="display:none">🔍 Nur aktuellen Filter exportieren (<span id="filtered-count">0</span>)</button>
+  </div>
+
+  <div class="divider">oder</div>
+
+  <div class="card">
+    <div class="card-title">Aus Excel importieren</div>
+    <p style="font-size:13px;color:var(--muted);margin-bottom:12px;">
+      Lade eine früher exportierte .xlsx-Datei, um dein Lager weiterzuführen.
+    </p>
+    <div class="file-zone" onclick="document.getElementById('xlsx-input').click()">
+      <div class="icon">📂</div>
+      .xlsx Datei auswählen
+    </div>
+    <input type="file" id="xlsx-input" accept=".xlsx" style="display:none" onchange="importXLSX(event)">
+    <p id="import-status" style="font-size:12px;color:var(--muted);text-align:center;"></p>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Speisekammer zurücksetzen</div>
+    <p style="font-size:13px;color:var(--muted);margin-bottom:12px;">
+      Löscht alle Einträge in der App. Erstelle vorher einen Export!
+    </p>
+    <button class="btn btn-ghost" onclick="clearAll()">🗑 Alle Einträge löschen</button>
+  </div>
+
+</div>
+
+<!-- STATS PAGE -->
+<div id="page-stats" class="page">
+  <div class="card">
+    <div class="card-title">Übersicht</div>
+    <div class="stats-grid" id="stats-grid"></div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Kategorien</div>
+    <div id="stats-categories"></div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Ablaufdaten</div>
+    <div id="stats-expiry"></div>
+  </div>
+</div>
+
+<!-- SETTINGS PAGE -->
+<div id="page-settings" class="page">
+
+  <div class="card" id="account-card">
+    <div class="card-title">👤 Konto</div>
+    <p style="font-size:13px;color:var(--text);margin-bottom:4px" id="account-email">–</p>
+    <p style="font-size:11px;color:var(--muted);margin-bottom:14px">Angemeldet seit dieser Sitzung</p>
+    <button class="btn btn-ghost" onclick="handleLogout()">🚪 Abmelden</button>
+  </div>
+
+  <div class="card">
+    <div class="card-title">📁 Kategorien</div>
+    <p style="font-size:12px;color:var(--muted);margin-bottom:12px">Tipp: Emoji voranstellen für ein Icon, z.B. 🫙 Eingemachtes</p>
+    <div id="cat-list"></div>
+    <div class="barcode-input-row" style="margin-top:10px">
+      <input type="text" id="new-cat" placeholder="z.B. 🫙 Eingemachtes">
+      <button class="btn btn-primary btn-sm" onclick="addCat()">+ Neu</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">📍 Behälter &amp; Orte</div>
+    <div id="loc-list"></div>
+    <div class="barcode-input-row" style="margin-top:10px">
+      <input type="text" id="new-loc" placeholder="z.B. Keller-Regal">
+      <button class="btn btn-primary btn-sm" onclick="addLoc()">+ Neu</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">📦 Einheiten</div>
+    <div id="unit-list"></div>
+    <div class="barcode-input-row" style="margin-top:10px">
+      <input type="text" id="new-unit" placeholder="z.B. Beutel">
+      <button class="btn btn-primary btn-sm" onclick="addUnit()">+ Neu</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">⚠️ Zurücksetzen</div>
+    <p style="font-size:13px;color:var(--muted);margin-bottom:12px;">
+      Setzt Kategorien, Behälter und Einheiten auf die Werkseinstellungen zurück. Dein Lager bleibt davon unberührt.
+    </p>
+    <button class="btn btn-ghost" onclick="resetToDefaults()">↺ Auf Standard zurücksetzen</button>
+  </div>
+
+  <div class="card" id="dev-mode-card" style="padding:12px 14px">
+    <div style="display:flex;align-items:center;justify-content:space-between">
+      <div>
+        <div class="card-title" style="margin-bottom:2px">🧪 Entwicklermodus</div>
+        <p style="font-size:12px;color:var(--muted)">Zeigt technische Sync-Diagnose</p>
+      </div>
+      <label style="position:relative;display:inline-block;width:44px;height:24px;flex-shrink:0">
+        <input type="checkbox" id="dev-mode-toggle" onchange="toggleDevMode()" style="opacity:0;width:0;height:0">
+        <span id="dev-mode-slider" style="position:absolute;cursor:pointer;inset:0;background:var(--border);border-radius:24px;transition:.2s"></span>
+      </label>
+    </div>
+  </div>
+
+  <div class="card" id="dev-mode-panel" style="display:none">
+    <div class="card-title">🔧 Sync-Diagnose</div>
+    <div id="debug-log" style="font-size:11px;color:var(--muted);font-family:monospace;line-height:1.8;"></div>
+    <div style="height:8px"></div>
+    <button class="btn btn-ghost" onclick="debugSync()">Jetzt manuell synchronisieren</button>
+  </div>
+
+</div>
+
+
+<!-- Edit Modal -->
+<div id="edit-modal">
+  <div id="edit-modal-inner">
+    <h3>Artikel bearbeiten <button class="modal-close" onclick="closeEdit()">✕ Schließen</button></h3>
+    <input type="hidden" id="edit-idx">
+    <div class="field"><label>Produktname</label><input type="text" id="edit-name"></div>
+    <div class="row-flex">
+      <div class="field"><label>Menge</label><input type="number" id="edit-qty" min="0.1" step="0.1"></div>
+      <div class="field"><label>Einheit</label><select id="edit-unit"></select></div>
+    </div>
+    <div class="row-flex">
+      <div class="field"><label>Kategorie</label><select id="edit-category"></select></div>
+      <div class="field"><label>Behälter / Ort</label><select id="edit-location"></select></div>
+    </div>
+    <div class="field"><label>MHD</label><input type="date" id="edit-mhd"></div>
+    <div class="field"><label>Notiz</label><input type="text" id="edit-note" placeholder="optional"></div>
+    <button class="btn btn-primary" onclick="saveEdit()">✓ Speichern</button>
+    <div style="height:8px"></div>
+    <button class="btn btn-danger" onclick="deleteItem()">🗑 Artikel löschen</button>
+  </div>
+</div>
+
+<!-- Recipe Prompt Modal -->
+<div id="recipe-modal">
+  <div id="recipe-modal-inner">
+    <h3>🎲 Rezept-Prompt <button class="modal-close" onclick="closeRecipeModal()">✕ Schließen</button></h3>
+    <p style="font-size:12px;color:var(--muted);margin-bottom:10px;">
+      Kopiere den Text und füge ihn in Claude, ChatGPT oder eine andere KI ein.
+    </p>
+    <textarea id="recipe-text" readonly style="width:100%;min-height:200px;background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:12px;color:var(--text);font-size:13px;font-family:var(--font);resize:vertical;line-height:1.5"></textarea>
+    <div style="height:10px"></div>
+    <button class="btn btn-primary" onclick="copyRecipePrompt()">📋 Text kopieren</button>
+  </div>
+</div>
+
+<!-- Info Modal -->
+<div id="info-modal">
+  <div id="info-modal-inner">
+    <h3>ℹ️ Über Speisekammer <button class="modal-close" onclick="closeInfoModal()">✕ Schließen</button></h3>
+
+    <div style="font-size:13px;color:var(--text);line-height:1.7">
+      <p style="margin-bottom:14px">
+        <strong>Speisekammer</strong> ist eine private Lagerverwaltung für Küche und Vorräte.
+        Barcode scannen, Produktdaten automatisch abrufen, Bestand pflegen – auf allen Geräten synchron.
+      </p>
+
+      <div class="section-label" style="margin-top:18px">Kontakt</div>
+      <p style="margin-bottom:14px">
+        Bei Fragen oder Feedback:<br>
+        <span style="color:var(--muted)">[Deine Kontakt-E-Mail hier eintragen]</span>
+      </p>
+
+      <div class="section-label">Lizenz</div>
+      <p style="margin-bottom:14px">
+        Diese Software steht unter der <strong>GNU General Public License v3.0</strong>.
+        Du darfst sie frei nutzen, verändern und weitergeben – Änderungen müssen ebenfalls
+        unter der GPL v3 veröffentlicht werden.<br>
+        <a href="https://www.gnu.org/licenses/gpl-3.0.html" target="_blank" style="color:var(--teal)">Lizenztext lesen →</a>
+      </p>
+
+      <div class="section-label">Datenquellen</div>
+      <p style="margin-bottom:14px">
+        Produktdaten von <a href="https://world.openfoodfacts.org" target="_blank" style="color:var(--teal)">OpenFoodFacts</a>
+        (Open Database License).
+      </p>
+
+      <div class="section-label">Quellcode</div>
+      <p style="margin-bottom:0">
+        <a href="https://github.com/urgush/speisekammer" target="_blank" style="color:var(--teal)">github.com/urgush/speisekammer</a>
+      </p>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+// ─── State ───────────────────────────────────────────────────────────────────
+let inventory = JSON.parse(localStorage.getItem('kuechen_lager') || '[]');
+let currentBarcode = '';
+let scannerRunning = false;
+let activeFilter = ''; // legacy, replaced by activeMhdFilter
+
+const DEFAULT_CATS = ['🥐 Backen','🥤 Getränke','🧂 Gewürze','🥛 Kühlschrank','🥫 Konserven','🫘 Hülsenfrüchte','🍝 Nudeln/Reis','🫙 Öl/Fett','🍫 Süßes/Snacks','🧊 Tiefkühl','📦 Sonstiges'];
+const DEFAULT_LOCS = ['Kühlschrank','Tiefkühler','Vorratsschrank'];
+const DEFAULT_UNITS = ['Packung','Dose','Flasche','Glas','kg','g','Liter','ml','Stück'];
+
+let categories = JSON.parse(localStorage.getItem('kl_cats') || 'null') || [...DEFAULT_CATS];
+let locations  = JSON.parse(localStorage.getItem('kl_locs') || 'null') || [...DEFAULT_LOCS];
+let units      = JSON.parse(localStorage.getItem('kl_units') || 'null') || [...DEFAULT_UNITS];
+
+function resetToDefaults() {
+  if (!confirm('Kategorien, Behälter und Einheiten wirklich auf Standard zurücksetzen?\n\nEigene Einträge gehen dabei verloren. Dein Speisekammer-Bestand bleibt unverändert.')) return;
+
+  categories = [...DEFAULT_CATS];
+  locations = [...DEFAULT_LOCS];
+  units = [...DEFAULT_UNITS];
+
+  saveSettings();
+  populateDropdowns();
+  renderSettings();
+  showToast('✓ Auf Standard zurückgesetzt');
+}
+
+function sortCategories() {
+  const sonstiges = categories.filter(c => catDisplayName(c) === 'Sonstiges');
+  const rest = categories.filter(c => catDisplayName(c) !== 'Sonstiges');
+  rest.sort((a, b) => catDisplayName(a).localeCompare(catDisplayName(b), 'de'));
+  categories = [...rest, ...sonstiges];
+}
+
+function saveSettingsNoSort() {
+  localStorage.setItem('kl_cats', JSON.stringify(categories));
+  localStorage.setItem('kl_locs', JSON.stringify(locations));
+  localStorage.setItem('kl_units', JSON.stringify(units));
+  scheduleSettingsSync();
+}
+
+function saveSettings() {
+  sortCategories();
+  localStorage.setItem('kl_cats', JSON.stringify(categories));
+  localStorage.setItem('kl_locs', JSON.stringify(locations));
+  localStorage.setItem('kl_units', JSON.stringify(units));
+  scheduleSettingsSync();
+}
+
+function catRawName(c) { return c.replace(/^\p{Emoji}\s*/u, '').replace(/^[\u{1F000}-\u{1FFFF}\u{2600}-\u{27BF}]\s*/u, '').trim(); }
+function catIcon(c) { const m = c.match(/^(\S+)\s/); return m && m[1].length <= 4 ? m[1] : '📦'; }
+function catDisplayName(c) {
+  // Strip leading emoji if present
+  return c.replace(/^[^\w\u00C0-\u024F]+/, '').trim();
+}
+
+const CATEGORY_ICONS = new Proxy({}, {
+  get(_, key) {
+    const found = categories.find(c => catDisplayName(c) === key || c === key);
+    return found ? catIcon(found) : '📦';
+  }
+});
+
+// ─── Populate dropdowns ───────────────────────────────────────────────────────
+function populateDropdowns() {
+  const catSel = document.getElementById('f-category');
+  const locSel = document.getElementById('f-location');
+  const unitSel = document.getElementById('f-unit');
+  if (!catSel) return;
+  const prevCat = catSel.value, prevLoc = locSel.value, prevUnit = unitSel.value;
+  catSel.innerHTML = categories.map(c => `<option value="${catDisplayName(c)}">${c}</option>`).join('');
+  locSel.innerHTML = locations.map(l => `<option>${l}</option>`).join('');
+  unitSel.innerHTML = units.map(u => `<option>${u}</option>`).join('');
+  if (prevCat) catSel.value = prevCat;
+  if (prevLoc) locSel.value = prevLoc;
+  if (prevUnit) unitSel.value = prevUnit;
+  populateFilterDropdowns();
+}
+
+// ─── Settings rendering ───────────────────────────────────────────────────────
+function renderSettings() {
+  renderEditList('cat-list', categories, 'cat');
+  renderEditList('loc-list', locations, 'loc');
+  renderEditList('unit-list', units, 'unit');
+
+  const devOn = localStorage.getItem('kl_dev_mode') === 'true';
+  document.getElementById('dev-mode-toggle').checked = devOn;
+  document.getElementById('dev-mode-panel').style.display = devOn ? 'block' : 'none';
+}
+
+function toggleDevMode() {
+  const on = document.getElementById('dev-mode-toggle').checked;
+  localStorage.setItem('kl_dev_mode', on);
+  document.getElementById('dev-mode-panel').style.display = on ? 'block' : 'none';
+  if (on) dbg('🧪 Entwicklermodus aktiviert');
+}
+
+let locSortable = null;
+
+function renderEditList(elId, arr, type) {
+  const el = document.getElementById(elId);
+  if (!arr.length) { el.innerHTML = '<div style="color:var(--muted);font-size:13px;padding:8px 0">Keine Einträge</div>'; return; }
+
+  const dragHandle = type === 'loc' ? '<span style="cursor:grab;color:var(--muted);padding:0 4px;font-size:14px" class="drag-handle">⠿</span>' : '';
+
+  el.innerHTML = arr.map((item, i) => `
+    <div class="${type}-row" data-index="${i}" style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--border)">
+      ${dragHandle}
+      <span style="flex:1;font-size:14px">${item}</span>
+      <button onclick="editEntry('${type}',${i})" style="background:none;border:1px solid var(--border);color:var(--muted);border-radius:6px;padding:5px 9px;font-size:12px;cursor:pointer">✏️</button>
+      <button onclick="deleteEntry('${type}',${i})" style="background:none;border:1px solid var(--border);color:var(--red);border-radius:6px;padding:5px 9px;font-size:12px;cursor:pointer">🗑</button>
+    </div>`).join('');
+
+  // Enable drag & drop sorting for locations only
+  if (type === 'loc' && typeof Sortable !== 'undefined') {
+    if (locSortable) locSortable.destroy();
+    locSortable = Sortable.create(el, {
+      handle: '.drag-handle',
+      animation: 150,
+      onEnd: function(evt) {
+        const moved = locations.splice(evt.oldIndex, 1)[0];
+        locations.splice(evt.newIndex, 0, moved);
+        saveSettingsNoSort();
+        populateDropdowns();
+        showToast('✓ Reihenfolge gespeichert');
+      }
+    });
+  }
+}
+
+function getArr(type) { return type==='cat'?categories:type==='loc'?locations:units; }
+function setArr(type, arr) {
+  if(type==='cat') categories=arr;
+  else if(type==='loc') locations=arr;
+  else units=arr;
+}
+
+function addCat()  { addEntry('cat',  'new-cat',  'Kategorie');  }
+function addLoc()  { addEntry('loc',  'new-loc',  'Behälter');   }
+function addUnit() { addEntry('unit', 'new-unit', 'Einheit');    }
+
+function addEntry(type, inputId, label) {
+  const v = document.getElementById(inputId).value.trim();
+  if (!v) return;
+  getArr(type).push(v);
+  saveSettings(); populateDropdowns(); renderSettings();
+  document.getElementById(inputId).value = '';
+  showToast('✓ ' + label + ' hinzugefügt');
+}
+
+function deleteEntry(type, i) {
+  const arr = getArr(type);
+  const deletedName = catDisplayName(arr[i]);
+  const deletedRaw = arr[i];
+
+  // Count affected inventory items
+  let affected = 0;
+  if (type === 'cat') affected = inventory.filter(item => item.category === deletedName).length;
+  if (type === 'loc') affected = inventory.filter(item => item.location === deletedName).length;
+
+  const warning = affected > 0
+    ? `\n\n⚠️ ${affected} Artikel ${type === 'cat' ? 'in dieser Kategorie' : 'an diesem Ort'} werden auf "Nicht zugeordnet" gesetzt.`
+    : '';
+
+  if (!confirm(`"${deletedRaw}" wirklich löschen?${warning}`)) return;
+
+  // Update affected inventory items
+  if (type === 'cat') {
+    inventory.forEach(item => { if (item.category === deletedName) item.category = 'Sonstiges'; });
+  }
+  if (type === 'loc') {
+    inventory.forEach(item => { if (item.location === deletedName) item.location = 'Nicht zugeordnet'; });
+  }
+
+  arr.splice(i, 1);
+
+  // Ensure "Nicht zugeordnet" exists as fallback option if needed
+  if (type === 'cat' && affected > 0 && !categories.find(c => catDisplayName(c) === 'Sonstiges')) {
+    ;
+  }
+  if (type === 'loc' && affected > 0 && !locations.includes('Nicht zugeordnet')) {
+    locations.push('Nicht zugeordnet');
+  }
+
+  save();
+  saveSettings();
+  populateDropdowns();
+  renderSettings();
+  showToast(affected > 0 ? `Gelöscht – ${affected} Artikel auf "Nicht zugeordnet" gesetzt` : 'Gelöscht');
+}
+
+function editEntry(type, i) {
+  const arr = getArr(type);
+  const val = prompt('Umbenennen:', arr[i]);
+  if (val === null || val.trim() === '') return;
+  const oldDisplay = catDisplayName(arr[i]);
+  arr[i] = val.trim();
+  if (type === 'cat') inventory.forEach(item => { if (item.category === oldDisplay) item.category = catDisplayName(arr[i]); });
+  if (type === 'loc') inventory.forEach(item => { if (item.location === oldDisplay) item.location = arr[i]; });
+  saveSettings(); save(); populateDropdowns(); renderSettings();
+  showToast('✓ Umbenannt');
+}
+
+// ─── Navigation ──────────────────────────────────────────────────────────────
+function showPage(name, btn) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('nav button').forEach(b => b.classList.remove('active'));
+  document.getElementById('page-'+name).classList.add('active');
+  if (btn) btn.classList.add('active');
+  if (name === 'lager') { populateFilterDropdowns(); renderList(); }
+  if (name === 'stats') renderStats();
+  if (name === 'settings') renderSettings();
+  if (name === 'export') {
+    document.getElementById('export-count').textContent = inventory.length;
+    const filterBtn = document.getElementById('export-filtered-btn');
+    if (hasActiveFilters()) {
+      filterBtn.style.display = 'block';
+      document.getElementById('filtered-count').textContent = getFilteredItems().length;
+    } else {
+      filterBtn.style.display = 'none';
+    }
+  }
+}
+
+// ─── Scanner ─────────────────────────────────────────────────────────────────
+let zxingReader = null;
+
+function startScanner() {
+  document.getElementById('scanner-placeholder').style.display = 'none';
+  document.getElementById('scanner-container').style.display = 'block';
+
+  const hints = new Map();
+  const formats = [
+    ZXing.BarcodeFormat.EAN_13,
+    ZXing.BarcodeFormat.EAN_8,
+    ZXing.BarcodeFormat.UPC_A,
+    ZXing.BarcodeFormat.UPC_E,
+    ZXing.BarcodeFormat.CODE_128,
+  ];
+  hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, formats);
+  hints.set(ZXing.DecodeHintType.TRY_HARDER, true);
+
+  zxingReader = new ZXing.BrowserMultiFormatReader(hints);
+  scannerRunning = true;
+
+  zxingReader.decodeFromConstraints(
+    { video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } } },
+    document.querySelector('#scanner-container video') || createVideoEl(),
+    (result, err) => {
+      if (result) {
+        const code = result.getText();
+        if (code) {
+          stopScanner();
+          currentBarcode = code;
+          document.getElementById('manual-barcode').value = code;
+          lookupBarcode(code);
+        }
+      }
+    }
+  ).catch(err => {
+    showToast('Kamera konnte nicht gestartet werden', true);
+    stopScanner();
+  });
+}
+
+function createVideoEl() {
+  const v = document.createElement('video');
+  v.style.width = '100%'; v.style.height = '100%'; v.style.objectFit = 'cover';
+  document.getElementById('scanner-container').appendChild(v);
+  return v;
+}
+
+function stopScanner() {
+  if (zxingReader) { zxingReader.reset(); zxingReader = null; }
+  scannerRunning = false;
+  document.getElementById('scanner-container').style.display = 'none';
+  document.getElementById('scanner-placeholder').style.display = 'flex';
+}
+
+function lookupManual() {
+  const code = document.getElementById('manual-barcode').value.trim().replace(/\D/g,'');
+  if (!code) { showToast('Bitte Barcode eingeben', true); return; }
+  currentBarcode = code;
+  document.getElementById('manual-barcode').value = code;
+  lookupBarcode(code);
+}
+
+function manualEntry() {
+  currentBarcode = '';
+  document.getElementById('manual-barcode').value = '';
+  document.getElementById('f-name').value = '';
+  document.getElementById('f-qty').value = '1';
+  document.getElementById('f-mhd').value = '';
+  document.getElementById('f-note').value = '';
+  // Reset category and location to defaults
+  const catSel = document.getElementById('f-category');
+  const locSel = document.getElementById('f-location');
+  if (catSel) catSel.selectedIndex = 0;
+  if (locSel) locSel.selectedIndex = 0;
+  // Show product form directly
+  const display = document.getElementById('product-display');
+  display.innerHTML = `
+    <div class="item-icon">✏️</div>
+    <div class="product-info">
+      <h3>Manuelle Erfassung</h3>
+      <p>Kein Barcode – bitte alle Felder ausfüllen</p>
+    </div>`;
+  document.getElementById('product-result').style.display = 'block';
+  // Focus name field
+  setTimeout(() => document.getElementById('f-name').focus(), 100);
+}
+
+async function lookupBarcode(code) {
+  if (!code || code.length < 4) { showToast('Ungültiger Barcode', true); return; }
+
+  // Show loader, hide old result
+  document.getElementById('scan-loader').classList.add('active');
+  document.getElementById('product-result').style.display = 'none';
+  document.getElementById('manual-barcode').value = code;
+
+  try {
+    const res = await fetch(
+      `https://world.openfoodfacts.org/api/v0/product/${code}.json`,
+      { signal: AbortSignal.timeout(8000) }
+    );
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+    document.getElementById('scan-loader').classList.remove('active');
+    showProductResult(code, data);
+  } catch(e) {
+    document.getElementById('scan-loader').classList.remove('active');
+    if (e.name === 'TimeoutError') {
+      showToast('OpenFoodFacts antwortet nicht – manuell eingeben', true);
+    }
+    // Show manual entry form even on error
+    showProductResult(code, null);
+  }
+}
+
+function showProductResult(code, data) {
+  document.getElementById('scan-loader').classList.remove('active');
+
+  const p = data?.product;
+  const name = p?.product_name_de || p?.product_name || '';
+  const brand = p?.brands || '';
+  const img = p?.image_small_url || '';
+  const allTags = (p?.categories_tags || []);
+  const category = allTags[0]?.replace(/^[a-z]+:/,'') || '';
+  // Show raw OF tags for transparency
+  const tagDisplay = allTags.slice(0,5).map(t => t.replace(/^[a-z]+:/,'')).join(', ') || '–';
+
+  document.getElementById('f-name').value = name || '';
+
+  // Auto-map unit from packaging tags
+  const packagingTags = (p?.packaging_tags || p?.packaging || '').toString().toLowerCase();
+  const unitRules = [
+    ['Dose',    ['can','cans','tin','tins','metal-can']],
+    ['Flasche', ['bottle','bottles','glass-bottle','plastic-bottle']],
+    ['Glas',    ['glass-jar','jar','jars','glass']],
+    ['Packung', ['packet','pack','bag','pouch','sachet','box','carton']],
+    ['Tube',    ['tube','tubes']],
+  ];
+  const unitSel = document.getElementById('f-unit');
+  for (const [unit, keywords] of unitRules) {
+    if (keywords.some(k => packagingTags.includes(k))) {
+      const opt = Array.from(unitSel.options).find(o => o.value === unit);
+      if (opt) { unitSel.value = unit; break; }
+    }
+  }
+
+  // Auto-map category from OpenFoodFacts tags
+  // Strategy: check ALL category tags, not just the first one, use priority order
+  const tagStr = allTags.map(t => t.replace(/^[a-z]+:/,'')).join(' ').toLowerCase();
+
+  const catRules = [
+    // ── Nudeln / Reis ──────────────────────────────────────────────────────
+    ['Nudeln/Reis', ['pasta','noodle','spaghetti','penne','fusilli','rigatoni',
+      'lasagne','tagliatelle','vermicelli','couscous','polenta','semolina',
+      'rice','risotto','basmati','jasmine-rice','long-grain','cereals-and-potatoes',
+      'cereal','grain','wheat-product','durum']],
+
+    // ── Hülsenfrüchte ──────────────────────────────────────────────────────
+    ['Hülsenfrüchte', ['legume','bean','lentil','chickpea','pea','soy','soya',
+      'tofu','edamame','kidney','black-bean','cannellini','borlotti',
+      'split-pea','dal','dhal','pulse']],
+
+    // ── Konserven ──────────────────────────────────────────────────────────
+    ['Konserven', ['canned','tinned','preserved','conserve','jarred',
+      'canned-food','canned-vegetables','canned-tomato','tomato-paste',
+      'tomato-sauce','canned-fruit','canned-fish','tuna','sardine',
+      'anchovy','mackerel','herring']],
+
+    // ── Gewürze ────────────────────────────────────────────────────────────
+    ['Gewürze', ['salt','spice','herb','seasoning','condiment','pepper',
+      'paprika','cinnamon','cumin','turmeric','oregano','basil','thyme',
+      'rosemary','bay-leaf','curry','mustard','wasabi','chili','cayenne',
+      'nutmeg','clove','cardamom','vanilla','saffron','garlic-powder',
+      'onion-powder','mixed-spice','bouillon','stock-cube','broth-cube',
+      'vinegar','worcestershire','tabasco','hot-sauce','soy-sauce',
+      'fish-sauce','oyster-sauce','teriyaki','msg']],
+
+    // ── Öl / Fett ──────────────────────────────────────────────────────────
+    ['Öl/Fett', ['oil','fat','butter','margarine','lard','ghee','shortening',
+      'coconut-oil','olive-oil','rapeseed','sunflower-oil','palm-oil',
+      'sesame-oil','vegetable-oil','cooking-oil','spread']],
+
+    // ── Süßes / Honig / Aufstriche ─────────────────────────────────────────
+    ['Süßes/Snacks', ['honey','honeys','sweetener','jam','jelly','marmalade',
+      'spread','hazelnut-spread','nutella','peanut-butter','almond-butter',
+      'chocolate','cocoa','candy','sweet','biscuit','cookie','wafer',
+      'cake','muffin','brownie','pastry','snack','chip','crisp','popcorn',
+      'pretzel','cracker','bar','energy-bar','granola-bar','cereal-bar',
+      'gummy','marshmallow','caramel','toffee','fudge','nougat',
+      'confectionery','confection','dessert','pudding','ice-cream',
+      'sorbet','gelato','syrup','treacle','molasses','sugar']],
+
+    // ── Backen ─────────────────────────────────────────────────────────────
+    ['Backen', ['flour','baking','yeast','baking-powder','baking-soda',
+      'bicarbonate','cornstarch','starch','bread-mix','cake-mix',
+      'pancake-mix','vanilla-sugar','icing-sugar','powdered-sugar',
+      'cocoa-powder','almond-flour','coconut-flour']],
+
+    // ── Getränke ───────────────────────────────────────────────────────────
+    ['Getränke', ['water','juice','beverage','drink','soda','lemonade',
+      'cola','beer','wine','spirits','coffee','tea','herbal-tea',
+      'infusion','kombucha','smoothie','nectar','squash','cordial',
+      'energy-drink','sports-drink','milk-drink','plant-milk',
+      'oat-milk','almond-milk','soy-milk','coconut-milk-drink']],
+
+    // ── Tiefkühl ───────────────────────────────────────────────────────────
+    ['Tiefkühl', ['frozen','freeze','ice-cream','frozen-food','frozen-vegetable',
+      'frozen-fruit','frozen-meal','frozen-pizza','frozen-fish',
+      'frozen-meat','frozen-dessert']],
+
+    // ── Kühlschrank ────────────────────────────────────────────────────────
+    ['Kühlschrank', ['dairy','milk','cheese','yogurt','yoghurt','quark',
+      'cream','butter','egg','fresh','refrigerated','chilled',
+      'fresh-pasta','fresh-meat','deli','cold-cut','sausage',
+      'ham','bacon','smoked-salmon','tofu-fresh']],
+  ];
+
+  let mappedCat = null;
+  for (const [cat, keywords] of catRules) {
+    if (keywords.some(k => tagStr.includes(k))) { mappedCat = cat; break; }
+  }
+  const sel = document.getElementById('f-category');
+  if (mappedCat) {
+    const opt = Array.from(sel.options).find(o => o.value === mappedCat || o.text.includes(mappedCat));
+    if (opt) sel.value = opt.value;
+  } else if (!tagStr || tagStr.trim() === '') {
+    // No tags from DB at all – set to Nicht zugeordnet if available
+    const fallback = Array.from(sel.options).find(o => o.value === 'Sonstiges' || o.text.includes('Sonstiges'));
+    if (fallback) sel.value = fallback.value;
+  }
+  // If tags exist but no match found, leave current selection as-is (first category)
+
+  const display = document.getElementById('product-display');
+  if (name || img) {
+    display.innerHTML = `
+      ${img ? `<img src="${img}" class="product-img" onerror="this.style.display='none'">` : '<div class="item-icon">'+(CATEGORY_ICONS[document.getElementById('f-category').value]||'📦')+'</div>'}
+      <div class="product-info">
+        <h3>${name || 'Unbekanntes Produkt'}</h3>
+        <p>${brand ? brand + ' · ' : ''}${code}</p>
+        <p style="margin-top:4px"><span class="badge badge-ok">✓ In OpenFoodFacts gefunden</span></p>
+        <p style="margin-top:4px;font-size:11px;color:var(--muted)">OF-Tags: <span style="color:var(--text)">${tagDisplay}</span></p>
+      </div>`;
+  } else {
+    display.innerHTML = `
+      <div class="item-icon">📦</div>
+      <div class="product-info">
+        <h3>Barcode: ${code}</h3>
+        <p>Nicht in der Datenbank – bitte Namen manuell eingeben</p>
+        <p style="margin-top:4px"><span class="badge badge-info">Manuell erfassen</span></p>
+        <p style="margin-top:4px;font-size:11px;color:var(--muted)">OF-Tags: –</p>
+      </div>`;
+  }
+
+  document.getElementById('product-result').style.display = 'block';
+}
+
+// ─── Inventory Actions ────────────────────────────────────────────────────────
+async function addItem() {
+  const name = document.getElementById('f-name').value.trim();
+  if (!name) { showToast('Bitte Produktname eingeben', true); return; }
+
+  const existing = inventory.find(i => i.barcode === currentBarcode && i.location === document.getElementById('f-location').value);
+
+  if (existing) {
+    existing.qty = parseFloat(existing.qty) + parseFloat(document.getElementById('f-qty').value);
+    existing.changed = new Date().toLocaleDateString('de-DE');
+    const newId = await saveItemToSupabase(existing);
+    showToast(`+${document.getElementById('f-qty').value} ${document.getElementById('f-unit').value} → ${name}`);
+  } else {
+    const newItem = {
+      barcode: currentBarcode,
+      name,
+      qty: parseFloat(document.getElementById('f-qty').value),
+      unit: document.getElementById('f-unit').value,
+      category: document.getElementById('f-category').value,
+      location: document.getElementById('f-location').value,
+      mhd: document.getElementById('f-mhd').value,
+      note: document.getElementById('f-note').value,
+      changed: new Date().toLocaleDateString('de-DE')
+    };
+    const newId = await saveItemToSupabase(newItem);
+    newItem.id = newId;
+    inventory.push(newItem);
+    showToast(`✓ ${name} eingebucht`);
+  }
+
+  save();
+  renderList();
+  resetForm();
+}
+
+async function removeItem() {
+  const name = document.getElementById('f-name').value.trim();
+  const qty = parseFloat(document.getElementById('f-qty').value);
+
+  let idx = inventory.findIndex(i => i.barcode === currentBarcode && currentBarcode);
+  if (idx === -1) {
+    idx = inventory.findIndex(i => i.name.toLowerCase() === name.toLowerCase());
+  }
+  if (idx === -1) { showToast('Artikel nicht in der Speisekammer gefunden', true); return; }
+
+  const item = inventory[idx];
+  item.qty = Math.max(0, parseFloat(item.qty) - qty);
+
+  if (item.qty <= 0) {
+    await deleteItemFromSupabase(item.id);
+    inventory.splice(idx, 1);
+    showToast(`🗑 ${name} verbraucht`);
+  } else {
+    await saveItemToSupabase(item);
+    showToast(`-${qty} → noch ${item.qty} ${item.unit}`);
+  }
+
+  save();
+  renderList();
+  resetForm();
+}
+
+function resetForm() {
+  currentBarcode = '';
+  document.getElementById('manual-barcode').value = '';
+  document.getElementById('f-name').value = '';
+  document.getElementById('f-qty').value = '1';
+  document.getElementById('f-mhd').value = '';
+  document.getElementById('f-note').value = '';
+  document.getElementById('product-result').style.display = 'none';
+}
+
+// Note: save() now only updates local state cache.
+// Actual persistence happens via saveItemToSupabase()/deleteItemFromSupabase()
+// called directly from the inventory action functions below.
+function save() {
+  localStorage.setItem('kuechen_lager', JSON.stringify(inventory));
+}
+
+// ─── List ─────────────────────────────────────────────────────────────────────
+let activeMhdFilter = '';
+function setFilter(type, val) {
+  if (type === 'mhd') activeMhdFilter = val;
+  renderList();
+}
+
+function resetFilters() {
+  activeMhdFilter = '';
+  const fc = document.getElementById('filter-cat');
+  const fl = document.getElementById('filter-loc');
+  const fs = document.getElementById('search');
+  if (fc) fc.value = '';
+  if (fl) fl.value = '';
+  if (fs) fs.value = '';
+  renderList();
+}
+
+function updateResetBtn() {
+  const btn = document.getElementById('reset-filter-btn');
+  if (!btn) return;
+  const fc = document.getElementById('filter-cat')?.value || '';
+  const fl = document.getElementById('filter-loc')?.value || '';
+  const fs = document.getElementById('search')?.value || '';
+  const active = activeMhdFilter || fc || fl || fs;
+  btn.style.display = active ? 'inline-block' : 'none';
+}
+
+function populateFilterDropdowns() {
+  const catSel = document.getElementById('filter-cat');
+  const locSel = document.getElementById('filter-loc');
+  if (!catSel || !locSel) return;
+  const prevCat = catSel.value, prevLoc = locSel.value;
+  catSel.innerHTML = '<option value="">Alle Kategorien</option>' +
+    categories.map(c => `<option value="${catDisplayName(c)}">${c}</option>`).join('');
+  locSel.innerHTML = '<option value="">Alle Behälter</option>' +
+    locations.map(l => `<option value="${l}">${l}</option>`).join('');
+  if (prevCat) catSel.value = prevCat;
+  if (prevLoc) locSel.value = prevLoc;
+}
+
+function mhdStatus(mhd) {
+  if (!mhd) return null;
+  const d = new Date(mhd);
+  const today = new Date(); today.setHours(0,0,0,0);
+  const diff = Math.floor((d - today) / 86400000);
+  if (diff < 0) return { label: 'Abgelaufen', cls: 'badge-danger', key: 'expired' };
+  if (diff <= 30) return { label: `in ${diff} Tagen`, cls: 'badge-warn', key: 'warn' };
+  return { label: `bis ${d.toLocaleDateString('de-DE')}`, cls: 'badge-ok', key: 'ok' };
+}
+
+function getFilteredItems() {
+  const q = document.getElementById('search')?.value.toLowerCase() || '';
+  const filterCat = document.getElementById('filter-cat')?.value || '';
+  const filterLoc = document.getElementById('filter-loc')?.value || '';
+  return inventory.filter(i => {
+    if (q && !i.name.toLowerCase().includes(q) && !i.category.toLowerCase().includes(q) && !i.location.toLowerCase().includes(q) && !(i.note||'').toLowerCase().includes(q)) return false;
+    if (filterCat && i.category !== filterCat) return false;
+    if (filterLoc && i.location !== filterLoc) return false;
+    if (activeMhdFilter) {
+      const s = mhdStatus(i.mhd);
+      if (s?.key !== activeMhdFilter) return false;
+    }
+    return true;
+  });
+}
+
+function hasActiveFilters() {
+  const q = document.getElementById('search')?.value || '';
+  const filterCat = document.getElementById('filter-cat')?.value || '';
+  const filterLoc = document.getElementById('filter-loc')?.value || '';
+  return !!(q || filterCat || filterLoc || activeMhdFilter);
+}
+
+function renderList() {
+  let items = getFilteredItems();
+
+  updateResetBtn();
+  const el = document.getElementById('lager-list');
+  if (!items.length) {
+    el.innerHTML = '<div class="empty"><span class="icon">📭</span>Keine Einträge gefunden</div>'; return;
+  }
+
+  // Group by location
+  const groups = {};
+  items.forEach(i => { if (!groups[i.location]) groups[i.location]=[]; groups[i.location].push(i); });
+
+  el.innerHTML = Object.entries(groups).map(([loc, list]) => `
+    <div class="card" style="padding:12px 14px">
+      <div class="section-label">📍 ${loc}</div>
+      ${list.map(i => {
+        const s = mhdStatus(i.mhd);
+        return `<div class="item-row">
+          <div class="item-icon">${CATEGORY_ICONS[i.category]||'📦'}</div>
+          <div class="item-main">
+            <div class="item-name">${i.name}</div>
+            <div class="item-sub">${i.category}${s ? ' · <span class="badge '+s.cls+'">'+s.label+'</span>' : ''}${i.note ? ' · '+i.note : ''}</div>
+          </div>
+          <div class="item-right">
+            <div class="item-qty">${i.qty}</div>
+            <div class="item-unit">${i.unit}</div>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:4px;flex-shrink:0">
+            <button onclick="openEdit(${inventory.indexOf(i)})" style="background:none;border:1px solid var(--border);color:var(--muted);border-radius:6px;padding:3px 7px;font-size:11px;cursor:pointer;">✏️</button>
+            <button onclick="quickRemove('${i.barcode||''}','${i.name}')" style="background:none;border:1px solid var(--border);color:var(--muted);border-radius:6px;padding:3px 7px;font-size:11px;cursor:pointer;" title="Eine Einheit entfernen">−1</button>
+          </div>
+        </div>`;
+      }).join('')}
+    </div>
+  `).join('');
+}
+
+async function quickRemove(barcode, name) {
+  const idx = barcode ? inventory.findIndex(i => i.barcode === barcode && i.name === name)
+                       : inventory.findIndex(i => i.name === name);
+  if (idx === -1) return;
+  const item = inventory[idx];
+  item.qty = Math.max(0, parseFloat(item.qty) - 1);
+
+  if (item.qty <= 0) {
+    await deleteItemFromSupabase(item.id);
+    inventory.splice(idx, 1);
+    showToast(`🗑 ${name} entfernt`);
+  } else {
+    await saveItemToSupabase(item);
+    showToast(`-1 → noch ${item.qty} ${item.unit}`);
+  }
+  save();
+  renderList();
+}
+
+// ─── Stats ────────────────────────────────────────────────────────────────────
+function renderStats() {
+  const total = inventory.length;
+  const expired = inventory.filter(i => mhdStatus(i.mhd)?.key === 'expired').length;
+  const warn = inventory.filter(i => mhdStatus(i.mhd)?.key === 'warn').length;
+  const ok = inventory.filter(i => mhdStatus(i.mhd)?.key === 'ok').length;
+
+  document.getElementById('stats-grid').innerHTML = `
+    <div class="stat-card"><div class="stat-num" style="color:var(--teal)">${total}</div><div class="stat-label">Artikel gesamt</div></div>
+    <div class="stat-card"><div class="stat-num" style="color:var(--teal)">${ok}</div><div class="stat-label">Alles OK</div></div>
+    <div class="stat-card"><div class="stat-num" style="color:var(--amber)">${warn}</div><div class="stat-label">Bald ablaufend</div></div>
+    <div class="stat-card"><div class="stat-num" style="color:var(--red)">${expired}</div><div class="stat-label">Abgelaufen</div></div>
+  `;
+
+  // Categories
+  const cats = {};
+  inventory.forEach(i => { cats[i.category] = (cats[i.category]||0)+1; });
+  const sorted = Object.entries(cats).sort((a,b)=>b[1]-a[1]);
+  const maxCat = sorted[0]?.[1] || 1;
+
+  document.getElementById('stats-categories').innerHTML = sorted.length ? sorted.map(([cat,count]) => `
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">
+      <span style="font-size:16px">${CATEGORY_ICONS[cat]||'📦'}</span>
+      <div style="flex:1">
+        <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px;">
+          <span>${cat}</span><strong>${count}</strong>
+        </div>
+        <div style="height:4px;background:var(--border);border-radius:2px">
+          <div style="height:4px;width:${(count/maxCat*100).toFixed(0)}%;background:var(--teal);border-radius:2px"></div>
+        </div>
+      </div>
+    </div>`).join('') : '<div class="empty"><span class="icon">📊</span>Noch keine Daten</div>';
+
+  // Expiry
+  const expiring = inventory.filter(i=>i.mhd).sort((a,b)=>new Date(a.mhd)-new Date(b.mhd)).slice(0,8);
+  document.getElementById('stats-expiry').innerHTML = expiring.length ? expiring.map(i => {
+    const s = mhdStatus(i.mhd);
+    return `<div class="item-row">
+      <div style="font-size:16px">${CATEGORY_ICONS[i.category]||'📦'}</div>
+      <div class="item-main"><div class="item-name">${i.name}</div><div class="item-sub">${i.location}</div></div>
+      <span class="badge ${s?.cls||'badge-info'}">${s?.label||i.mhd}</span>
+    </div>`;
+  }).join('') : '<div style="color:var(--muted);font-size:13px;text-align:center;padding:20px">Keine MHD-Daten erfasst</div>';
+}
+
+// ─── XLSX Export ──────────────────────────────────────────────────────────────
+function exportXLSX(filtered = false) {
+  if (!inventory.length) { showToast('Speisekammer ist leer', true); return; }
+
+  const dataToExport = filtered ? getFilteredItems() : inventory;
+  if (filtered && !dataToExport.length) { showToast('Keine Artikel im aktuellen Filter', true); return; }
+
+  const wb = XLSX.utils.book_new();
+
+  const headers = ['Barcode','Produktname','Kategorie','Behälter / Ort','Menge','Einheit','MHD','Status','Zuletzt geändert','Notiz'];
+
+  const rows = dataToExport.map(i => {
+    const s = mhdStatus(i.mhd);
+    let status = '';
+    if (s?.key === 'expired') status = '⛔ Abgelaufen';
+    else if (s?.key === 'warn') status = '⚠️ Bald ablaufend';
+    else if (s?.key === 'ok') status = '✅ OK';
+    return [i.barcode||'', i.name, i.category, i.location, i.qty, i.unit, i.mhd||'', status, i.changed||'', i.note||''];
+  });
+
+  const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
+
+  // Column widths
+  ws['!cols'] = [18,28,16,20,8,10,14,20,18,22].map(w=>({wch:w}));
+
+  XLSX.utils.book_append_sheet(wb, ws, 'Lager');
+
+  // Stats sheet
+  const statsData = [
+    ['Statistik',''],
+    ['Gesamtartikel', dataToExport.length],
+    ['OK', dataToExport.filter(i=>mhdStatus(i.mhd)?.key==='ok').length],
+    ['Bald ablaufend', dataToExport.filter(i=>mhdStatus(i.mhd)?.key==='warn').length],
+    ['Abgelaufen', dataToExport.filter(i=>mhdStatus(i.mhd)?.key==='expired').length],
+    ['Exportiert am', new Date().toLocaleDateString('de-DE')],
+    ['Gefiltert', filtered ? 'Ja' : 'Nein']
+  ];
+  const ws2 = XLSX.utils.aoa_to_sheet(statsData);
+  XLSX.utils.book_append_sheet(wb, ws2, 'Statistik');
+
+  const date = new Date().toISOString().split('T')[0];
+  const suffix = filtered ? '_gefiltert' : '';
+  XLSX.writeFile(wb, `Speisekammer_${date}${suffix}.xlsx`);
+  showToast(`✓ ${dataToExport.length} Artikel exportiert`);
+}
+
+// ─── XLSX Import ──────────────────────────────────────────────────────────────
+function importXLSX(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+
+  const reader = new FileReader();
+  reader.onload = e => {
+    try {
+      const wb = XLSX.read(e.target.result, {type:'array'});
+      const ws = wb.Sheets['Lager'] || wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(ws, {header:1});
+
+      const imported = [];
+      for (let i = 1; i < rows.length; i++) {
+        const r = rows[i];
+        if (!r[1]) continue;
+        imported.push({
+          barcode: String(r[0]||''),
+          name: String(r[1]||''),
+          category: String(r[2]||'Sonstiges'),
+          location: String(r[3]||'Schrank'),
+          qty: parseFloat(r[4])||1,
+          unit: String(r[5]||'Packung'),
+          mhd: r[6]||'',
+          note: String(r[9]||''),
+          changed: new Date().toLocaleDateString('de-DE')
+        });
+      }
+
+      inventory = imported;
+      save();
+      document.getElementById('import-status').textContent = `✓ ${imported.length} Artikel importiert`;
+      showToast(`✓ ${imported.length} Artikel importiert`);
+    } catch(err) {
+      showToast('Fehler beim Import', true);
+      console.error(err);
+    }
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+async function clearAll() {
+  if (!confirm('Wirklich alle Einträge löschen? Dies kann nicht rückgängig gemacht werden.')) return;
+  if (currentUser) {
+    try {
+      const { error } = await sb.from('inventory').delete().eq('user_id', currentUser.id);
+      if (error) throw error;
+    } catch (e) {
+      dbg(`✗ Fehler beim Leeren: ${e.message}`);
+      showToast('Fehler beim Löschen', true);
+      return;
+    }
+  }
+  inventory = [];
+  save();
+  renderList();
+  showToast('Speisekammer geleert');
+}
+
+// ─── Toast ────────────────────────────────────────────────────────────────────
+let toastTimer;
+function showToast(msg, error=false) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = error ? 'show error' : 'show';
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.className = error ? 'error' : '', 2800);
+}
+
+// ─── Supabase Setup ──────────────────────────────────────────────────────────
+const SUPABASE_URL = 'https://hnsdwbkyotebqsrhniow.supabase.co';
+const SUPABASE_ANON_KEY = 'sb_publishable_fayuLzTgx-Agw9L5SGiWPQ_oQjyqyWr';
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+let currentUser = null;
+let isRegisterMode = false;
+let realtimeChannel = null;
+
+// ─── Debug log (kept for Entwicklermodus diagnostics) ─────────────────────────
+const debugLines = [];
+function dbg(msg) {
+  const t = new Date().toLocaleTimeString('de-DE');
+  debugLines.unshift(`${t}  ${msg}`);
+  if (debugLines.length > 20) debugLines.pop();
+  const el = document.getElementById('debug-log');
+  if (el) el.innerHTML = debugLines.map(l => `<div>${l}</div>`).join('');
+}
+
+function showConnWarning(show) {
+  document.getElementById('conn-warning').classList.toggle('show', show);
+}
+
+// ─── Auth ────────────────────────────────────────────────────────────────────
+function toggleLoginMode() {
+  isRegisterMode = !isRegisterMode;
+  document.getElementById('login-submit-btn').textContent = isRegisterMode ? 'Registrieren' : 'Anmelden';
+  document.getElementById('login-toggle-text').innerHTML = isRegisterMode
+    ? 'Schon ein Konto? <a onclick="toggleLoginMode()">Anmelden</a>'
+    : 'Noch kein Konto? <a onclick="toggleLoginMode()">Registrieren</a>';
+  document.getElementById('login-error').classList.remove('show');
+}
+
+function showLoginError(msg) {
+  const el = document.getElementById('login-error');
+  el.textContent = msg;
+  el.classList.add('show');
+}
+
+async function handleLogin() {
+  const email = document.getElementById('login-email').value.trim();
+  const password = document.getElementById('login-password').value;
+  document.getElementById('login-error').classList.remove('show');
+
+  if (!email || !password) { showLoginError('Bitte E-Mail und Passwort eingeben'); return; }
+  if (password.length < 6) { showLoginError('Passwort muss mind. 6 Zeichen haben'); return; }
+
+  const btn = document.getElementById('login-submit-btn');
+  btn.disabled = true;
+  btn.textContent = isRegisterMode ? 'Registriere…' : 'Melde an…';
+
+  try {
+    let result;
+    if (isRegisterMode) {
+      result = await sb.auth.signUp({ email, password });
+      if (result.error) throw result.error;
+      if (result.data.user && !result.data.session) {
+        showLoginError('Bitte bestätige deine E-Mail-Adresse (Link wurde versendet).');
+        btn.disabled = false;
+        btn.textContent = 'Registrieren';
+        return;
+      }
+    } else {
+      result = await sb.auth.signInWithPassword({ email, password });
+      if (result.error) throw result.error;
+    }
+    await onAuthSuccess(result.data.session);
+  } catch (e) {
+    showLoginError(translateAuthError(e.message));
+    btn.disabled = false;
+    btn.textContent = isRegisterMode ? 'Registrieren' : 'Anmelden';
+  }
+}
+
+function translateAuthError(msg) {
+  if (msg.includes('Invalid login credentials')) return 'E-Mail oder Passwort falsch';
+  if (msg.includes('already registered') || msg.includes('already exists')) return 'Diese E-Mail ist bereits registriert';
+  if (msg.includes('Password should be')) return 'Passwort zu kurz (mind. 6 Zeichen)';
+  return msg;
+}
+
+async function onAuthSuccess(session) {
+  currentUser = session.user;
+  document.getElementById('login-screen').classList.add('hidden');
+  document.getElementById('app-root').classList.add('visible');
+  const emailEl = document.getElementById('account-email');
+  if (emailEl) emailEl.textContent = currentUser.email;
+  dbg(`✓ Eingeloggt als ${currentUser.email}`);
+  await loadFromSupabase();
+  setupRealtimeSync();
+  populateDropdowns();
+  renderList();
+}
+
+async function handleLogout() {
+  if (!confirm('Wirklich abmelden?')) return;
+  if (realtimeChannel) sb.removeChannel(realtimeChannel);
+  await sb.auth.signOut();
+  currentUser = null;
+  document.getElementById('app-root').classList.remove('visible');
+  document.getElementById('login-screen').classList.remove('hidden');
+  document.getElementById('login-email').value = '';
+  document.getElementById('login-password').value = '';
+}
+
+// Check existing session on load
+async function checkSession() {
+  const { data } = await sb.auth.getSession();
+  if (data.session) {
+    await onAuthSuccess(data.session);
+  } else {
+    document.getElementById('login-screen').classList.remove('hidden');
+  }
+}
+
+// Keep session alive / refresh automatically (handled internally by supabase-js)
+sb.auth.onAuthStateChange((event, session) => {
+  if (event === 'SIGNED_OUT') {
+    currentUser = null;
+    document.getElementById('app-root').classList.remove('visible');
+    document.getElementById('login-screen').classList.remove('hidden');
+  }
+});
+
+// ─── Data Sync (Supabase) ───────────────────────────────────────────────────
+async function loadFromSupabase() {
+  if (!currentUser) return;
+  dbg('↓ Lade Daten von Supabase…');
+  try {
+    const { data: invData, error: invErr } = await sb
+      .from('inventory')
+      .select('*')
+      .order('created_at', { ascending: true });
+    if (invErr) throw invErr;
+
+    inventory = (invData || []).map(row => ({
+      id: row.id,
+      barcode: row.barcode || '',
+      name: row.name,
+      category: row.category,
+      location: row.location,
+      qty: parseFloat(row.qty),
+      unit: row.unit,
+      mhd: row.mhd || '',
+      note: row.note || '',
+      changed: row.updated_at ? new Date(row.updated_at).toLocaleDateString('de-DE') : ''
+    }));
+
+    const { data: settingsData, error: setErr } = await sb
+      .from('user_settings')
+      .select('*')
+      .eq('user_id', currentUser.id)
+      .maybeSingle();
+    if (setErr) throw setErr;
+
+    if (settingsData) {
+      categories = settingsData.categories?.length ? settingsData.categories : [...DEFAULT_CATS];
+      locations  = settingsData.locations?.length ? settingsData.locations : [...DEFAULT_LOCS];
+      units      = settingsData.units?.length ? settingsData.units : [...DEFAULT_UNITS];
+    } else {
+      // First login - create settings row with defaults
+      categories = [...DEFAULT_CATS];
+      locations = [...DEFAULT_LOCS];
+      units = [...DEFAULT_UNITS];
+      await sb.from('user_settings').insert({
+        user_id: currentUser.id, categories, locations, units
+      });
+    }
+
+    showConnWarning(false);
+    dbg(`✓ ${inventory.length} Artikel geladen`);
+  } catch (e) {
+    dbg(`✗ Ladefehler: ${e.message}`);
+    showConnWarning(true);
+  }
+}
+
+async function saveItemToSupabase(item) {
+  if (!currentUser) { showConnWarning(true); return null; }
+  try {
+    const payload = {
+      user_id: currentUser.id,
+      barcode: item.barcode || null,
+      name: item.name,
+      category: item.category,
+      location: item.location,
+      qty: item.qty,
+      unit: item.unit,
+      mhd: item.mhd || null,
+      note: item.note || null,
+      updated_at: new Date().toISOString()
+    };
+    if (item.id) {
+      const { error } = await sb.from('inventory').update(payload).eq('id', item.id);
+      if (error) throw error;
+      showConnWarning(false);
+      return item.id;
+    } else {
+      const { data, error } = await sb.from('inventory').insert(payload).select().single();
+      if (error) throw error;
+      showConnWarning(false);
+      return data.id;
+    }
+  } catch (e) {
+    dbg(`✗ Speicherfehler: ${e.message}`);
+    showConnWarning(true);
+    return null;
+  }
+}
+
+async function deleteItemFromSupabase(id) {
+  if (!currentUser || !id) return;
+  try {
+    const { error } = await sb.from('inventory').delete().eq('id', id);
+    if (error) throw error;
+    showConnWarning(false);
+  } catch (e) {
+    dbg(`✗ Löschfehler: ${e.message}`);
+    showConnWarning(true);
+  }
+}
+
+let settingsSyncTimer;
+function scheduleSettingsSync() {
+  clearTimeout(settingsSyncTimer);
+  settingsSyncTimer = setTimeout(async () => {
+    if (!currentUser) return;
+    try {
+      const { error } = await sb.from('user_settings').upsert({
+        user_id: currentUser.id, categories, locations, units, updated_at: new Date().toISOString()
+      });
+      if (error) throw error;
+      dbg('✓ Einstellungen gespeichert');
+      showConnWarning(false);
+    } catch (e) {
+      dbg(`✗ Einstellungs-Speicherfehler: ${e.message}`);
+      showConnWarning(true);
+    }
+  }, 1000);
+}
+
+// ─── Realtime Sync ───────────────────────────────────────────────────────────
+function setupRealtimeSync() {
+  if (!currentUser) return;
+  if (realtimeChannel) sb.removeChannel(realtimeChannel);
+
+  realtimeChannel = sb.channel('inventory-changes')
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'inventory', filter: `user_id=eq.${currentUser.id}` },
+      async (payload) => {
+        dbg(`🔄 Realtime: ${payload.eventType}`);
+        await loadFromSupabase();
+        renderList();
+      }
+    )
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'user_settings', filter: `user_id=eq.${currentUser.id}` },
+      async (payload) => {
+        dbg('🔄 Realtime: Einstellungen geändert');
+        await loadFromSupabase();
+        populateDropdowns();
+      }
+    )
+    .subscribe();
+}
+
+async function debugSync() {
+  dbg('▶ Manueller Sync gestartet');
+  await loadFromSupabase();
+  renderList();
+  populateDropdowns();
+}
+
+// ─── Edit Modal (Inventory item) ────────────────────────────────────────────
+function openEdit(idx) {
+  const i = inventory[idx];
+  if (!i) return;
+  document.getElementById('edit-idx').value = idx;
+  document.getElementById('edit-name').value = i.name;
+  document.getElementById('edit-qty').value = i.qty;
+  document.getElementById('edit-mhd').value = i.mhd || '';
+  document.getElementById('edit-note').value = i.note || '';
+
+  const catSel = document.getElementById('edit-category');
+  const locSel = document.getElementById('edit-location');
+  const unitSel = document.getElementById('edit-unit');
+  catSel.innerHTML = categories.map(c => `<option value="${catDisplayName(c)}">${c}</option>`).join('');
+  locSel.innerHTML = locations.map(l => `<option>${l}</option>`).join('');
+  unitSel.innerHTML = units.map(u => `<option>${u}</option>`).join('');
+
+  catSel.value = i.category;
+  locSel.value = i.location;
+  unitSel.value = i.unit;
+
+  document.getElementById('edit-modal').classList.add('open');
+}
+
+function closeEdit() {
+  document.getElementById('edit-modal').classList.remove('open');
+}
+
+async function saveEdit() {
+  const idx = parseInt(document.getElementById('edit-idx').value);
+  if (isNaN(idx) || !inventory[idx]) return;
+
+  inventory[idx] = {
+    ...inventory[idx],
+    name: document.getElementById('edit-name').value.trim(),
+    qty: parseFloat(document.getElementById('edit-qty').value),
+    unit: document.getElementById('edit-unit').value,
+    category: document.getElementById('edit-category').value,
+    location: document.getElementById('edit-location').value,
+    mhd: document.getElementById('edit-mhd').value,
+    note: document.getElementById('edit-note').value.trim(),
+    changed: new Date().toLocaleDateString('de-DE')
+  };
+
+  await saveItemToSupabase(inventory[idx]);
+  save();
+  closeEdit();
+  renderList();
+  showToast('✓ Gespeichert');
+}
+
+async function deleteItem() {
+  const idx = parseInt(document.getElementById('edit-idx').value);
+  if (isNaN(idx)) return;
+  const item = inventory[idx];
+  const name = item?.name;
+  if (!confirm(`"${name}" wirklich löschen?`)) return;
+
+  await deleteItemFromSupabase(item.id);
+  inventory.splice(idx, 1);
+  save();
+  closeEdit();
+  renderList();
+  showToast(`🗑 ${name} gelöscht`);
+}
+
+document.getElementById('edit-modal').addEventListener('click', function(e) {
+  if (e.target === this) closeEdit();
+});
+
+checkSession();
+</script>
+</div>
+</body>
+</html>
