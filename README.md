@@ -54,3 +54,7 @@ Dieses Projekt steht unter der [GNU General Public License v3.0](LICENSE). Du da
 ## Mitwirken
 
 Issues und Pull Requests sind willkommen. Dies ist ein privates Hobbyprojekt ohne Garantie auf Support oder Weiterentwicklung in bestimmtem Tempo.
+
+## Hinweis zur Entstehung
+
+Diese App wurde im Dialog mit [Claude](https://claude.ai) (Anthropic) entwickelt – von der ersten Idee über Architekturentscheidungen bis zur laufenden Fehlersuche. Sämtlicher Code wurde iterativ per "Vibe Coding" erstellt: in natürlicher Sprache beschrieben, generiert, getestet und verfeinert.
