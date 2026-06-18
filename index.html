@@ -692,6 +692,30 @@
     <button class="btn btn-ghost" onclick="handleLogout()">🚪 Abmelden</button>
   </div>
 
+  <div class="card" id="household-card">
+    <div class="card-title">🏠 Haushalt</div>
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+      <p style="font-size:14px;font-weight:700" id="household-name">–</p>
+      <button onclick="renameHousehold()" style="background:none;border:1px solid var(--border);color:var(--muted);border-radius:6px;padding:4px 8px;font-size:11px;cursor:pointer">✏️</button>
+    </div>
+
+    <p style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.07em;margin-bottom:4px">Mitglieder</p>
+    <div id="household-members-list" style="margin-bottom:14px">–</div>
+
+    <p style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.07em;margin-bottom:6px">Einladungscode</p>
+    <div class="barcode-input-row" style="margin-bottom:14px">
+      <input type="text" id="household-code" readonly style="text-align:center;font-weight:700;letter-spacing:.1em;background:var(--card);border:1px solid var(--border);border-radius:8px;padding:10px;color:var(--text);font-size:14px;flex:1">
+      <button class="btn btn-primary btn-sm" onclick="copyInviteCode()">📋 Kopieren</button>
+    </div>
+    <p style="font-size:12px;color:var(--muted);margin-bottom:14px">Teile diesen Code mit Familie oder Mitbewohnern, damit sie deinem Haushalt beitreten und denselben Bestand sehen können.</p>
+
+    <div class="divider">oder selbst beitreten</div>
+    <div class="barcode-input-row">
+      <input type="text" id="join-code-input" placeholder="Code eingeben">
+      <button class="btn btn-ghost btn-sm" onclick="joinHousehold()">Beitreten</button>
+    </div>
+  </div>
+
   <div class="card">
     <div class="card-title">📁 Kategorien</div>
     <p style="font-size:12px;color:var(--muted);margin-bottom:12px">Tipp: Emoji voranstellen für ein Icon, z.B. 🫙 Eingemachtes</p>
@@ -912,6 +936,7 @@ function renderSettings() {
   renderEditList('cat-list', categories, 'cat');
   renderEditList('loc-list', locations, 'loc');
   renderEditList('unit-list', units, 'unit');
+  renderHouseholdInfo();
 
   const devOn = localStorage.getItem('kl_dev_mode') === 'true';
   document.getElementById('dev-mode-toggle').checked = devOn;
@@ -1652,9 +1677,9 @@ function importXLSX(event) {
 
 async function clearAll() {
   if (!confirm('Wirklich alle Einträge löschen? Dies kann nicht rückgängig gemacht werden.')) return;
-  if (currentUser) {
+  if (currentUser && currentHouseholdId) {
     try {
-      const { error } = await sb.from('inventory').delete().eq('user_id', currentUser.id);
+      const { error } = await sb.from('inventory').delete().eq('household_id', currentHouseholdId);
       if (error) throw error;
     } catch (e) {
       dbg(`✗ Fehler beim Leeren: ${e.message}`);
@@ -1686,6 +1711,9 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 let currentUser = null;
 let isRegisterMode = false;
 let realtimeChannel = null;
+let currentHouseholdId = null;
+let currentHouseholdName = '';
+let currentInviteCode = '';
 
 // ─── Debug log (kept for Entwicklermodus diagnostics) ─────────────────────────
 const debugLines = [];
@@ -1766,10 +1794,123 @@ async function onAuthSuccess(session) {
   const emailEl = document.getElementById('account-email');
   if (emailEl) emailEl.textContent = currentUser.email;
   dbg(`✓ Eingeloggt als ${currentUser.email}`);
+  await ensureHousehold();
   await loadFromSupabase();
   setupRealtimeSync();
   populateDropdowns();
   renderList();
+  renderHouseholdInfo();
+}
+
+// ─── Household Management ───────────────────────────────────────────────────
+async function ensureHousehold() {
+  // Check if user is already a member of a household
+  const { data: membership, error: memErr } = await sb
+    .from('household_members')
+    .select('household_id, households(name, invite_code)')
+    .eq('user_id', currentUser.id)
+    .maybeSingle();
+
+  if (memErr) { dbg(`✗ Haushalt-Check fehlgeschlagen: ${memErr.message}`); return; }
+
+  if (membership) {
+    currentHouseholdId = membership.household_id;
+    currentHouseholdName = membership.households?.name || 'Mein Haushalt';
+    currentInviteCode = membership.households?.invite_code || '';
+    dbg(`✓ Haushalt: ${currentHouseholdName}`);
+    return;
+  }
+
+  // No household yet – create one
+  dbg('⟳ Erstelle neuen Haushalt…');
+  const { data: newHousehold, error: createErr } = await sb
+    .from('households')
+    .insert({ name: 'Mein Haushalt', created_by: currentUser.id })
+    .select()
+    .single();
+
+  if (createErr) { dbg(`✗ Haushalt-Erstellung fehlgeschlagen: ${createErr.message}`); return; }
+
+  const { error: joinErr } = await sb
+    .from('household_members')
+    .insert({ household_id: newHousehold.id, user_id: currentUser.id });
+
+  if (joinErr) { dbg(`✗ Haushalt-Beitritt fehlgeschlagen: ${joinErr.message}`); return; }
+
+  currentHouseholdId = newHousehold.id;
+  currentHouseholdName = newHousehold.name;
+  currentInviteCode = newHousehold.invite_code;
+  dbg(`✓ Neuer Haushalt erstellt: ${currentHouseholdName}`);
+}
+
+function renderHouseholdInfo() {
+  const nameEl = document.getElementById('household-name');
+  const codeEl = document.getElementById('household-code');
+  const membersEl = document.getElementById('household-members-list');
+  if (nameEl) nameEl.textContent = currentHouseholdName || '–';
+  if (codeEl) codeEl.value = currentInviteCode || '–';
+  if (membersEl) loadHouseholdMembers();
+}
+
+async function loadHouseholdMembers() {
+  if (!currentHouseholdId) return;
+  const { data, error } = await sb
+    .from('household_members')
+    .select('user_id, joined_at')
+    .eq('household_id', currentHouseholdId);
+
+  const el = document.getElementById('household-members-list');
+  if (!el) return;
+  if (error || !data) { el.innerHTML = '<div style="color:var(--muted);font-size:12px">Fehler beim Laden</div>'; return; }
+
+  el.innerHTML = data.map(m => {
+    const isYou = m.user_id === currentUser.id;
+    const joinedDate = new Date(m.joined_at).toLocaleDateString('de-DE');
+    const label = isYou ? '👤 Du' : '👤 ' + m.user_id.substring(0,8) + '…';
+    const extra = isYou ? '' : ' · seit ' + joinedDate;
+    return `<div style="font-size:12px;color:var(--muted);padding:4px 0">${label}${extra}</div>`;
+  }).join('');
+}
+
+function copyInviteCode() {
+  navigator.clipboard.writeText(currentInviteCode)
+    .then(() => showToast('✓ Code kopiert: ' + currentInviteCode))
+    .catch(() => showToast('Code: ' + currentInviteCode));
+}
+
+async function renameHousehold() {
+  const newName = prompt('Neuer Haushaltsname:', currentHouseholdName);
+  if (!newName || !newName.trim()) return;
+  const { error } = await sb.from('households').update({ name: newName.trim() }).eq('id', currentHouseholdId);
+  if (error) { showToast('Fehler beim Umbenennen', true); return; }
+  currentHouseholdName = newName.trim();
+  renderHouseholdInfo();
+  showToast('✓ Haushalt umbenannt');
+}
+
+async function joinHousehold() {
+  const code = document.getElementById('join-code-input').value.trim();
+  if (!code) { showToast('Bitte Code eingeben', true); return; }
+
+  const { data: household, error: findErr } = await sb
+    .from('households')
+    .select('id, name')
+    .eq('invite_code', code)
+    .maybeSingle();
+
+  if (findErr || !household) { showToast('Code nicht gefunden', true); return; }
+
+  if (!confirm(`Haushalt "${household.name}" beitreten? Dein bisheriger Haushalt-Bestand bleibt dort, du siehst danach den Bestand des neuen Haushalts.`)) return;
+
+  // Leave current household, join new one
+  await sb.from('household_members').delete().eq('user_id', currentUser.id);
+  const { error: joinErr } = await sb.from('household_members').insert({ household_id: household.id, user_id: currentUser.id });
+
+  if (joinErr) { showToast('Fehler beim Beitreten', true); return; }
+
+  showToast(`✓ Haushalt "${household.name}" beigetreten`);
+  document.getElementById('join-code-input').value = '';
+  await onAuthSuccess({ user: currentUser });
 }
 
 async function handleLogout() {
@@ -1804,12 +1945,13 @@ sb.auth.onAuthStateChange((event, session) => {
 
 // ─── Data Sync (Supabase) ───────────────────────────────────────────────────
 async function loadFromSupabase() {
-  if (!currentUser) return;
+  if (!currentUser || !currentHouseholdId) return;
   dbg('↓ Lade Daten von Supabase…');
   try {
     const { data: invData, error: invErr } = await sb
       .from('inventory')
       .select('*')
+      .eq('household_id', currentHouseholdId)
       .order('created_at', { ascending: true });
     if (invErr) throw invErr;
 
@@ -1829,7 +1971,7 @@ async function loadFromSupabase() {
     const { data: settingsData, error: setErr } = await sb
       .from('user_settings')
       .select('*')
-      .eq('user_id', currentUser.id)
+      .eq('household_id', currentHouseholdId)
       .maybeSingle();
     if (setErr) throw setErr;
 
@@ -1838,12 +1980,12 @@ async function loadFromSupabase() {
       locations  = settingsData.locations?.length ? settingsData.locations : [...DEFAULT_LOCS];
       units      = settingsData.units?.length ? settingsData.units : [...DEFAULT_UNITS];
     } else {
-      // First login - create settings row with defaults
+      // First time for this household - create settings row with defaults
       categories = [...DEFAULT_CATS];
       locations = [...DEFAULT_LOCS];
       units = [...DEFAULT_UNITS];
       await sb.from('user_settings').insert({
-        user_id: currentUser.id, categories, locations, units
+        household_id: currentHouseholdId, categories, locations, units
       });
     }
 
@@ -1856,10 +1998,10 @@ async function loadFromSupabase() {
 }
 
 async function saveItemToSupabase(item) {
-  if (!currentUser) { showConnWarning(true); return null; }
+  if (!currentUser || !currentHouseholdId) { showConnWarning(true); return null; }
   try {
     const payload = {
-      user_id: currentUser.id,
+      household_id: currentHouseholdId,
       barcode: item.barcode || null,
       name: item.name,
       category: item.category,
@@ -1904,10 +2046,10 @@ let settingsSyncTimer;
 function scheduleSettingsSync() {
   clearTimeout(settingsSyncTimer);
   settingsSyncTimer = setTimeout(async () => {
-    if (!currentUser) return;
+    if (!currentUser || !currentHouseholdId) return;
     try {
       const { error } = await sb.from('user_settings').upsert({
-        user_id: currentUser.id, categories, locations, units, updated_at: new Date().toISOString()
+        household_id: currentHouseholdId, categories, locations, units, updated_at: new Date().toISOString()
       });
       if (error) throw error;
       dbg('✓ Einstellungen gespeichert');
@@ -1921,18 +2063,18 @@ function scheduleSettingsSync() {
 
 // ─── Realtime Sync ───────────────────────────────────────────────────────────
 function setupRealtimeSync() {
-  if (!currentUser) return;
+  if (!currentUser || !currentHouseholdId) return;
   if (realtimeChannel) sb.removeChannel(realtimeChannel);
 
   realtimeChannel = sb.channel('inventory-changes')
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'inventory', filter: `user_id=eq.${currentUser.id}` },
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'inventory', filter: `household_id=eq.${currentHouseholdId}` },
       async (payload) => {
         dbg(`🔄 Realtime: ${payload.eventType}`);
         await loadFromSupabase();
         renderList();
       }
     )
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'user_settings', filter: `user_id=eq.${currentUser.id}` },
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'user_settings', filter: `household_id=eq.${currentHouseholdId}` },
       async (payload) => {
         dbg('🔄 Realtime: Einstellungen geändert');
         await loadFromSupabase();
